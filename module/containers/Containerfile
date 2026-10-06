@@ -1,0 +1,24 @@
+# kiwi-fox provider image: the 9proxy residential client, exposing SOCKS5 on the
+# providers bridge. Built by `kiwi-fox module setup 9proxy` as kiwi-fox/9proxy:latest.
+#
+# The 9proxy client is proprietary and is NOT included here. Provide it under
+# /opt/9proxy at build time — for example, drop the client into vendor/ and add:
+#
+#     COPY vendor/ /opt/9proxy/
+#
+# then rebuild (`kiwi-fox module setup 9proxy`). The entrypoint checks for it and
+# fails clearly if it is missing.
+FROM docker.io/library/debian:stable-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Placeholders so the image builds before the proprietary client is supplied.
+RUN mkdir -p /opt/9proxy /config
+
+COPY entrypoint.sh /usr/local/bin/kf-9proxy
+RUN chmod +x /usr/local/bin/kf-9proxy
+
+EXPOSE 1080
+ENTRYPOINT ["/usr/local/bin/kf-9proxy"]
