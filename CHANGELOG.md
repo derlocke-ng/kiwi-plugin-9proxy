@@ -6,6 +6,8 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-28
+
 ### Added
 - Initial 9proxy provider module for kiwi-fox: the 9proxy residential client in a
   container on the `kf-providers` bridge, exposing SOCKS5 on :1080, with
