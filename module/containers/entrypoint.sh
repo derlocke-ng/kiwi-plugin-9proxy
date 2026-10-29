@@ -1,5 +1,5 @@
 #!/bin/sh
-# kiwi-fox 9proxy provider — run the 9proxy client and expose its SOCKS5 on
+# kiwi-proxy 9proxy provider — run the 9proxy client and expose its SOCKS5 on
 # 0.0.0.0:1080, reachable on the providers bridge at this container's address.
 #
 # The 9proxy client is proprietary (see the Containerfile / README). Its exact

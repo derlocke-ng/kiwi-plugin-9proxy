@@ -1,9 +1,9 @@
-"""The 9proxy provider against the real kiwi-fox contract."""
+"""The 9proxy provider against the real kiwi-proxy contract."""
 
 from __future__ import annotations
 
-from kiwi_fox.core import podman
-from kiwi_fox.core.providers.base import Provider
+from kiwi_proxy import podman
+from kiwi_proxy.providers.base import Provider
 
 
 def test_manifest(manifest):
