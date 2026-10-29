@@ -3,25 +3,26 @@
 The 9proxy client authenticates with your account and opens a local SOCKS5 port
 bound to a residential exit. This module runs that client in a container on the
 providers bridge and exposes its SOCKS5 on :1080. Because the exit needs the
-account's credentials, auth is "account": the profile's own endpoint username and
+account's credentials, auth is "account": the exit's own endpoint username and
 password (your 9proxy SOCKS credentials) are sent by the gateway forwarder, so
-create the profile with them, e.g.
+create the exit (or the kiwi-fox profile) with them, e.g.
 
+    kiwi-proxy add work socks5://USER:PASS@<ip>:1080 --module 9proxy --lease <region>
     kiwi-fox new work socks5://USER:PASS@<ip>:1080 --module 9proxy --lease <region>
 
-Account configuration (not per profile) lives in the module's state directory and is
+Account configuration (not per exit) lives in the module's state directory and is
 mounted read-only into the client.
 
 The 9proxy client is proprietary and not redistributed here; provide it at build
 time (see the README). The entrypoint checks for it and fails clearly if it is
-missing, so kiwi-fox reports the provider did not come up rather than silently
+missing, so kiwi-proxy reports the provider did not come up rather than silently
 exposing nothing.
 """
 
 from __future__ import annotations
 
-from kiwi_fox.core.models import ContainerSpec, ProviderManifest
-from kiwi_fox.core.providers.base import ContainerProvider
+from kiwi_proxy.models import ContainerSpec, ProviderManifest
+from kiwi_proxy.providers.base import ContainerProvider
 
 SOCKS_PORT = 1080
 
@@ -29,7 +30,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through a 9proxy residential proxy",
-    version="0.1.0",
+    version="0.2.0",
     socks_port=SOCKS_PORT,
     auth="account",
     needs_account=True,
@@ -60,7 +61,7 @@ class NineProxyProvider(ContainerProvider):
             cap_drop=["all"],
             security_opt=["no-new-privileges"],
             tmpfs=["/tmp"],
-            labels={"kiwi-fox.module": self.name, "kiwi-fox.role": "provider"},
+            labels={"kiwi-proxy.module": self.name, "kiwi-proxy.role": "provider"},
         )
 
     def leases(self, ctx):
