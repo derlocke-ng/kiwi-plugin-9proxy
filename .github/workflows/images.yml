@@ -1,0 +1,20 @@
+# images — the provider image builds and runs.
+#
+# 0.2.x shipped provider images that did not build (a base image that does not
+# exist, a package Alpine does not carry) and nothing noticed until a desktop
+# built them: the unit tests never touch a Containerfile. This builds the image
+# from a clean cache and runs it once (tests/smoke/images.sh), on every push and
+# pull request. The proprietary 9proxy client is not in the repository, so the
+# run must fail clearly for its absence and for nothing else.
+name: images
+on:
+  push:
+  pull_request:
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: for f in tests/smoke/images.sh module/containers/entrypoint.sh; do bash -n "$f"; done
+      - run: bash tests/smoke/images.sh --no-cache
