@@ -6,6 +6,25 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
+### Changed
+- **9proxy's own client, one daemon, ten exits.** The image installs 9proxy's
+  Linux package from 9proxy when it is built (nothing to drop in by hand). One
+  container runs the daemon, logged into your account; its ports 60000-60009
+  carry one residential IP each, and each exit gets the next free port.
+  Needs kiwi-proxy 0.12.
+- **Your balance is spent only when you ask.** An exit starts on an IP from
+  today's list for its country (no new IP); with none it does not start.
+  `kiwi-proxy renew EXIT` (New IP in Kiwi Proxy) binds a new one. Auto-refresh
+  is off: a dead IP stops its exit.
+- The account (username, and the password as a podman secret) is set once with
+  `kiwi-proxy module config 9proxy` or in Kiwi Proxy. Exits no longer carry
+  9proxy SOCKS credentials.
+
+### Removed
+- `config/account.conf` and the hand-supplied client under `/opt/9proxy`.
+
 ## [0.2.0] - 2026-10-29
 
 ### Changed

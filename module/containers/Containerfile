@@ -1,24 +1,19 @@
-# kiwi-proxy provider image: the 9proxy residential client, exposing SOCKS5 on the
-# providers bridge. Built by `kiwi-proxy module setup 9proxy` as kiwi-proxy/9proxy:latest.
+# kiwi-proxy 9proxy provider — 9proxy's own Linux client (daemon and CLI), from
+# 9proxy's download server at build time (it is not redistributed here). Built by
+# `kiwi-proxy module setup 9proxy` as kiwi-proxy/9proxy:latest.
 #
-# The 9proxy client is proprietary and is NOT included here. Provide it under
-# /opt/9proxy at build time — for example, drop the client into vendor/ and add:
-#
-#     COPY vendor/ /opt/9proxy/
-#
-# then rebuild (`kiwi-proxy module setup 9proxy`). The entrypoint checks for it and
-# fails clearly if it is missing.
-FROM docker.io/library/debian:stable-slim
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Placeholders so the image builds before the proprietary client is supplied.
-RUN mkdir -p /opt/9proxy /config
-
+# Fedora and the RPM, as the user's own 9proxy-pod runs it. The daemon serves
+# ports 60000-60009, one residential IP each, on this container's address on the
+# providers bridge, where only kiwi-proxy's gateways reach them.
+FROM registry.fedoraproject.org/fedora:latest
+ARG NINEPROXY_RPM=https://static.9proxy-cdn.net/download/latest/linux/9proxy-linux-redhat-amd64.rpm
+RUN dnf -y -q install "$NINEPROXY_RPM" \
+ && dnf clean all \
+ && test -x /usr/bin/9proxy
+# The ports listen on the container's own address (the entrypoint writes it into
+# the config from KF_9PROXY_IP): 9proxy takes no 0.0.0.0, and the gateway is
+# another container.
+RUN grep -q '"default_ip_format"' /etc/9proxy-config.json
 COPY entrypoint.sh /usr/local/bin/kf-9proxy
-RUN chmod +x /usr/local/bin/kf-9proxy
-
-EXPOSE 1080
+RUN chmod 755 /usr/local/bin/kf-9proxy
 ENTRYPOINT ["/usr/local/bin/kf-9proxy"]

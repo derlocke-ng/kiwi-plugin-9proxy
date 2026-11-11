@@ -1,25 +1,60 @@
 #!/bin/sh
-# kiwi-proxy 9proxy provider — run the 9proxy client and expose its SOCKS5 on
-# 0.0.0.0:1080, reachable on the providers bridge at this container's address.
+# kiwi-proxy 9proxy provider: 9proxy's daemon, logged into your account, with its
+# ten ports (60000-60009) on this container's address. kiwi-proxy binds one port
+# per exit (`9proxy proxy -n -c CC -p PORT`: from today's list, no new IP).
 #
-# The 9proxy client is proprietary (see the Containerfile / README). Its exact
-# invocation depends on the client version; the flags below are the documented
-# shape and the one place to adjust.
+#   KF_9PROXY_USER            the account
+#   KF_9PROXY_IP              this container's address on the providers bridge,
+#                             where the ports listen (9proxy takes no 0.0.0.0)
+#   /run/secrets/9proxy-pw    its password (a podman secret, not in `inspect`)
+#   /etc/9proxy               the daemon's data, kept between starts
 set -eu
 
-PORT=1080
-CLIENT=/opt/9proxy/9proxy
-CONF=/config/account.conf
+log() { echo "kf-9proxy: $*"; }
+die() { echo "kf-9proxy: $*" >&2; exit 1; }
 
-if [ ! -x "$CLIENT" ]; then
-    echo "9proxy: client not found at $CLIENT — provide it at build time (see README)" >&2
-    exit 1
+PWFILE=/run/secrets/9proxy-pw
+SOCK=/tmp/s9proxy.sock
+USER_NAME="${KF_9PROXY_USER:-}"
+[ -n "$USER_NAME" ] || die "no 9proxy account; set it in Kiwi Proxy (Modules, 9proxy)"
+[ -s "$PWFILE" ] || die "no password for $USER_NAME; set it in Kiwi Proxy (Modules, 9proxy)"
+
+if [ -n "${KF_9PROXY_IP:-}" ]; then
+    sed -i "s#\"default_ip_format\" *: *\"[^\"]*\"#\"default_ip_format\":\"$KF_9PROXY_IP:%v\"#" /etc/9proxy-config.json
 fi
-if [ ! -f "$CONF" ]; then
-    echo "9proxy: no account config at $CONF — add your 9proxy account (see README)" >&2
-    exit 1
+mkdir -p /etc/9proxy
+cd /etc/9proxy
+/usr/bin/9proxy -daemon &
+DAEMON=$!
+i=0
+while [ ! -S "$SOCK" ]; do
+    kill -0 "$DAEMON" 2>/dev/null || die "the 9proxy daemon exited during start"
+    i=$((i + 1)); [ "$i" -lt 150 ] || die "the 9proxy daemon did not start"
+    sleep 0.2
+done
+
+# Ports from 60000; no auto refresh (a dead IP stops its exit instead of
+# spending a new one); no local login (only the gateways reach the ports).
+9proxy setting --start 60000 >/dev/null 2>&1 || true
+9proxy setting -n >/dev/null 2>&1 || true
+9proxy setting --no_auth >/dev/null 2>&1 || true
+
+account() { 9proxy setting -d 2>/dev/null | sed -n 's/^ *Authentication: *//p'; }
+state="$(account)"
+case "$state" in
+    *"not logged in"*|"") state="" ;;
+    *"$USER_NAME"*) log "logged in as $USER_NAME (kept from the last start)" ;;
+    *) log "logged in as another account; logging out"; 9proxy auth -l >/dev/null 2>&1 || true; state="" ;;
+esac
+if [ -z "$state" ]; then
+    out="$(9proxy auth -u "$USER_NAME" -p "$(cat "$PWFILE")" 2>&1 || true)"
+    state="$(account)"
+    case "$state" in
+        *"not logged in"*|"") die "login as $USER_NAME failed: $(echo "$out" | tail -2 | tr '\n' ' ')" ;;
+    esac
+    log "logged in as $USER_NAME"
 fi
 
-# shellcheck disable=SC2086  # KF_9PROXY_REGION is an optional single token
-exec "$CLIENT" --config "$CONF" --listen "0.0.0.0:$PORT" \
-    ${KF_9PROXY_REGION:+--region "$KF_9PROXY_REGION"}
+log "ready ($state)"
+wait "$DAEMON" || true
+die "the 9proxy daemon exited"

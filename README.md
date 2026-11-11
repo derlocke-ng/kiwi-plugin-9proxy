@@ -1,82 +1,61 @@
 # kiwi-plugin-9proxy
 
-A [kiwi-proxy](https://github.com/derlocke-ng/kiwi-proxy) provider module: send an
-exit — a kiwi-fox browser identity, kiwi-pentesting's tools, a SOCKS5 port on
-the host — through a **[9proxy](https://9proxy.com/) residential proxy**.
-
-The 9proxy client logs in with your account and opens a local SOCKS5 port bound to a
-residential exit. This module runs that client in a container on the `kf-providers`
-bridge and exposes its SOCKS5 on `:1080`, where a kiwi-proxy gateway reaches it.
-
-A 9proxy account is required, and so is the **proprietary 9proxy client**, which is
-not redistributed here (see below).
+A [kiwi-proxy](https://github.com/derlocke-ng/kiwi-proxy) provider module: exits
+through **[9proxy](https://9proxy.com/) residential IPs**, with your 9proxy
+account. Up to ten exits at a time, one IP each; any number of Kiwi Fox
+profiles and Kiwi Custodia boxes can share each exit.
 
 ## Install
 
 ```sh
 kiwi install kiwi-plugin-9proxy
-# provide the 9proxy client (see "The client" below), then:
-kiwi-proxy module setup 9proxy       # builds kiwi-proxy/9proxy:latest
+kiwi-proxy module setup 9proxy       # builds kiwi-proxy/9proxy:latest with 9proxy's own client
+kiwi-proxy module config 9proxy username=YOU --ask password    # once
 ```
 
-## The client
-
-The 9proxy client is proprietary. Put it under `/opt/9proxy` in the image at build
-time: drop the client into this repo's `module/containers/vendor/` and add to
-`module/containers/Containerfile`:
-
-```dockerfile
-COPY vendor/ /opt/9proxy/
-```
-
-then rebuild with `kiwi-proxy module setup 9proxy`. Without it the image still builds,
-but the provider fails to come up with a clear message (it never silently exposes an
-open port).
-
-## Account (once)
-
-Account configuration lives in the module's state directory, mounted read-only into
-the client:
-
-```
-~/.local/share/kiwi-proxy/modules-state/9proxy/config/account.conf
-```
+In Kiwi Proxy: **Modules → 9proxy** asks for the account. The password is kept
+as a podman secret; the daemon logs in when it starts and keeps its login in the
+module's data folder.
 
 ## Use
 
-The exit needs your 9proxy SOCKS credentials, so create it with them — they
-are forwarded per exit and never stored in the container's environment:
-
 ```sh
-kiwi-proxy add work socks5://USER:PASS@<ip>:1080 --module 9proxy --lease <region>   # an exit
-kiwi-fox new work socks5://USER:PASS@<ip>:1080 --module 9proxy --lease <region>     # a browser identity
-kiwi-fox run work
+kiwi-proxy add us-1 --module 9proxy --country us     # an exit, on the next free port
+kiwi-proxy up us-1
+kiwi-fox new shop --exit us-1                         # a browser on it
+kiwi-proxy renew us-1                                 # a new IP (uses one from your balance)
 ```
 
-(`<ip>` is printed by `kiwi-proxy module up 9proxy`; kiwi-proxy re-resolves the live
-bridge address at launch, so a stale value still works.) `--lease` / `--country`
-selects a region if your plan supports it.
+**Your balance is spent only when you ask.**
+
+- An exit starts on an IP from 9proxy's **today's list** (IPs used in the last
+  24 hours, rebound at no cost) for its country. With none there it does not
+  start, and says so.
+- **New IP** (in Kiwi Proxy's exit details, or `kiwi-proxy renew EXIT`) binds a
+  new one, which uses one IP from your balance; the app asks first.
+- 9proxy's **auto-refresh is off**: an IP that dies stops its exit instead of
+  being replaced.
 
 ## How it fits
 
 ```
-9proxy client container ── kf-providers bridge ── kiwi-proxy gateway ── browser
-  SOCKS5 0.0.0.0:1080                              permits only <9proxy-ip>:1080
-  account from /config (ro)                        forwarder adds your account creds
+9proxy daemon (one container, your account) ── kf-providers bridge
+   ports 60000-60009, one residential IP each
+      └─ kiwi-proxy gateway of each exit   permits only <9proxy-ip>:<its port>
+            └─ Kiwi Fox browsers, Kiwi Custodia boxes
 ```
 
-## Status
-
-The wiring, lifecycle, image, and account/credential handling are complete and
-unit-tested against the kiwi-proxy contract. Running it end-to-end needs the
-proprietary 9proxy client and an account; the entrypoint's client flags are the one
-place to adjust for your client version.
+The client is 9proxy's own Linux package, downloaded from 9proxy when the image
+is built; it is not redistributed here. Its ports listen on the container's
+address on the providers bridge, where only kiwi-proxy's gateways reach them,
+and each gateway's firewall lets its members reach only their own port.
 
 ## Development
 
 ```sh
 make setup && make test     # needs a kiwi-proxy checkout beside this repo (or KIWI_PROXY_SRC)
 make lint
+bash tests/smoke/images.sh  # builds the image and runs it once (no account needed)
 ```
 
 ## License
