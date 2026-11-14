@@ -55,6 +55,10 @@ if [ -z "$state" ]; then
     log "logged in as $USER_NAME"
 fi
 
+# The daemon's local API (today's list, binding one of its IPs), on this
+# container's address like the ports; only the providers bridge reaches it.
+9proxy api -s -p 10110 >/dev/null 2>&1 || log "the local API did not start; today's list is not available"
+
 log "ready ($state)"
 wait "$DAEMON" || true
 die "the 9proxy daemon exited"

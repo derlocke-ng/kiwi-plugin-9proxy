@@ -148,9 +148,41 @@ def test_the_daemon_stays_while_another_exit_uses_it(provider, ctx, monkeypatch)
 
 
 def test_an_exit_is_chosen_by_the_clis_own_filters(module, provider, ctx):
-    assert [o.key for o in provider.exit_options(ctx)] == ["state", "city", "zip", "plan"]
+    assert [o.key for o in provider.exit_options(ctx)] == ["state", "city", "zip", "plan", "today"]
     assert module.filters("us", {"city": "Los Angeles", "state": "California", "zip": ""}) == [
         "-c", "US", "-s", "California", "-t", "Los Angeles",
     ]  # fmt: skip
     assert module.filters(None, None) == []
     assert module.where("us", {"city": "Los Angeles"}) == " in Los Angeles, US"
+
+
+REAL_TABLE = """┌────────────────────┬──────────┬──────────────┬────────┬────────┐
+│ BINDING            │ CITY     │ PUBLIC IP    │ ONLINE │ STATUS │
+├────────────────────┼──────────┼──────────────┼────────┼────────┤
+│ 10.89.231.23:60000 │          │              │        │ Free   │
+│ 10.89.231.23:60001 │ Berlin   │ 203.0.113.77 │ true   │ Used   │
+└────────────────────┴──────────┴──────────────┴────────┴────────┘"""
+
+
+def test_a_free_port_is_not_bound_whatever_address_it_listens_on(module):
+    # Seen with a real account: the listening address was read as the exit's IP.
+    assert not module.bound(REAL_TABLE, "60000")
+    assert module.bound(REAL_TABLE, "60001")
+    assert not module.bound(REAL_TABLE, "60002")
+
+
+def test_todays_list_becomes_rows_to_pick_from(module):
+    rows = module.today_leases(
+        [
+            {"id": "abc", "city": "Berlin", "ip": "203.0.113.77", "country_code": "DE",
+             "is_online": True, "binding": None},
+            {"id": "def", "city": "Paris", "ip": "203.0.113.9", "country_code": "FR",
+             "is_online": False, "binding": "10.89.231.23:60001"},
+            {"city": "no id"},
+        ]
+    )  # fmt: skip
+    assert [(r.id, r.label, r.city, r.country, r.detail) for r in rows] == [
+        ("abc", "203.0.113.77", "Berlin", "DE", "online"),
+        ("def", "203.0.113.9", "Paris", "FR", "offline, on 10.89.231.23:60001"),
+    ]
+    assert module.today_leases(None) == []

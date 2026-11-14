@@ -6,6 +6,22 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
+### Fixed
+- **An exit said "up" with no IP on its port**, and nothing connected. The
+  module read the address a port listens on, in `9proxy port -s`, as the exit's
+  IP. A port is bound only when the table shows a public IP for it and it is not
+  "Free" (seen with a real account). An exit with nothing on today's list now
+  says so and points to New IP, as intended.
+
+### Added
+- **Pick an IP from today's list**: the daemon's local API (9Proxy App API,
+  docs.9proxy.com) is started on the container's address, and the exit dialog's
+  "An IP from today's list → Choose…" shows the addresses the account already
+  used today, with city and whether they are online. The chosen one is bound to
+  the exit's port (`/api/forward`), at no cost.
+
 ## [0.4.0] - 2026-11-14
 
 ### Added

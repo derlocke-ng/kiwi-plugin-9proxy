@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.4.0",
+    version="0.5.0",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -70,15 +70,44 @@ def port_line(status: str, port: str) -> str | None:
 
 
 def bound(status: str, port: str) -> bool:
-    """Does `9proxy port -s` show this port carrying a live IP? A line with an
-    address on it, and no word that it is dead."""
+    """Does `9proxy port -s` show this port carrying a live IP? Its line is
+    "│ 10.89.231.23:60000 │ city │ public IP │ online │ status │": the first
+    address is the container's own (where the port listens) and says nothing; a
+    free port has no public IP and the status "Free". Seen with a real account,
+    2026-11-14: reading the listening address as the IP made a free port "up"."""
     line = port_line(status, port)
     if not line:
         return False
-    rest = line.replace(port, " ")
-    if re.search(r"(?i)\b(dead|offline|error|fail\w*|expired|unavailable|none)\b", rest):
+    cells = [c.strip() for c in line.split("│")]
+    rest = " ".join(c for c in cells if f":{port}" not in c)
+    if re.search(r"(?i)\b(free|dead|offline|error|fail\w*|expired|unavailable|none)\b", rest):
         return False
     return bool(_IP.search(rest))
+
+
+API_PORT = 10110
+
+
+def today_leases(data: object) -> list[Lease]:
+    """Today's list from the daemon's local API (`/api/today_list`: id, city, ip,
+    country_code, is_online, binding) as rows for a picker."""
+    out = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        state = "online" if item.get("is_online") else "offline"
+        if item.get("binding"):
+            state += f", on {item['binding']}"
+        out.append(
+            Lease(
+                id=str(item["id"]),
+                label=str(item.get("ip") or ""),
+                country=(str(item.get("country_code") or "") or None),
+                city=str(item.get("city") or "") or None,
+                detail=state,
+            )
+        )
+    return out
 
 
 # What an exit can be chosen by besides its country: the filters of
@@ -91,6 +120,14 @@ EXIT_OPTIONS = [
     Setting("zip", "Zip code", required=False),
     Setting(
         "plan", "Plan", help="One of your 9proxy plans, when you have several.", required=False
+    ),
+    Setting(
+        "today",
+        "An IP from today's list",
+        kind="choice",
+        help="An IP you already used today (kept 24 hours, bound again at no cost). "
+        "Leave empty for any that fits the filters above.",
+        required=False,
     ),
 ]
 _FLAGS = {"state": "-s", "city": "-t", "zip": "-z", "plan": "-a"}
@@ -185,6 +222,29 @@ class NineProxyProvider(ContainerProvider):
         proc = podman.exec_(ctx.container_name(), ["9proxy", *args], timeout=timeout)
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
+    def _api(self, ctx, path: str) -> object:
+        """The daemon's local HTTP API (docs.9proxy.com, 9Proxy App API), asked
+        from inside the container; the `data` of its answer."""
+        url = f"http://{ctx.static_ip()}:{API_PORT}/api/{path}"
+        proc = podman.exec_(ctx.container_name(), ["curl", "-s", "-m", "30", url], timeout=45)
+        try:
+            answer = json.loads(proc.stdout or "")
+        except ValueError as exc:
+            raise ProviderError(f"9proxy: its API did not answer ({path.split('?')[0]})") from exc
+        if answer.get("error"):
+            raise ProviderError(f"9proxy: {answer.get('message') or 'its API refused'}")
+        return answer.get("data")
+
+    def option_choices(self, ctx, key, country=None):
+        """Today's list, for the "today" option: the IPs this account already has."""
+        if key != "today":
+            return []
+        if not podman.is_running(ctx.container_name()):
+            super().up(ctx, lease=None)
+        self._cli(ctx, "api", "-s", "-p", str(API_PORT))  # a daemon from before 0.5 has it off
+        query = "today_list?t=2" + (f"&country={country.upper()}" if country else "")
+        return today_leases(self._api(ctx, query))
+
     def _status(self, ctx) -> str:
         return self._cli(ctx, "port", "-s")[1]
 
@@ -210,8 +270,13 @@ class NineProxyProvider(ContainerProvider):
         port = self._port(lease)
         daemon = super().up(ctx, lease=None)  # the one container, every port
         if not bound(self._status(ctx), port):
-            args = ["proxy", "-n", "-p", port, *filters(country, options)]
-            _code, out = self._cli(ctx, *args)
+            out = ""
+            if picked := str((options or {}).get("today", "")).strip():
+                # The one IP chosen from today's list, on this exit's port.
+                self._api(ctx, f"forward?id={picked}&port={port}&t=2")
+            else:
+                args = ["proxy", "-n", "-p", port, *filters(country, options)]
+                _code, out = self._cli(ctx, *args)
             if not bound(self._status(ctx), port):
                 raise ProviderError(
                     f"9proxy: no IP{where(country, options)} on today's list for port {port}. A new one uses "
