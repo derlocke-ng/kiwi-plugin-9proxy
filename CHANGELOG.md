@@ -6,6 +6,14 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-14
+
+### Fixed
+- **A snapshot of the module failed** with "permission denied: …/data/api.timestamp":
+  the daemon writes that file with no read permission. The daemon's working
+  folder is left out of snapshots now; the account and its password travel, and
+  the daemon logs in again from them.
+
 ## [0.6.1] - 2026-11-14
 
 ### Fixed

@@ -212,3 +212,7 @@ def test_what_there_is_to_pick_comes_from_9proxys_own_lists(provider, ctx, monke
     assert asked[-1] == "listState?countryCode=DE"
     with pytest.raises(ProviderError, match="country first"):
         provider.option_choices(ctx, "city", None)
+
+
+def test_the_daemons_working_files_stay_out_of_snapshots(provider):
+    assert provider.snapshot_exclude == ("data",)  # api.timestamp there is unreadable

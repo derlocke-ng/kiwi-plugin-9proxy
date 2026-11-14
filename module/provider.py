@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.6.1",
+    version="0.6.2",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -158,6 +158,11 @@ class NineProxyProvider(ContainerProvider):
     # Options kiwi-proxy may change on a running exit (its details): renew()
     # then binds that IP from today's list instead of a new one.
     live_options = ("today",)
+    # Left out of kiwi-proxy's snapshots: the daemon's own working files (its
+    # session, a history log, and `api.timestamp`, which it writes with no read
+    # permission at all, so a snapshot failed on it). The account and its
+    # password are what travels; the daemon logs in again from them.
+    snapshot_exclude = ("data",)
     ready_timeout = 90.0
     log_marker = "kf-9proxy:"
 
