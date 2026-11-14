@@ -57,6 +57,8 @@ fi
 
 # The daemon's local API (today's list, binding one of its IPs), on this
 # container's address like the ports; only the providers bridge reaches it.
+# Stopped first: a daemon that starts again says "running" and does not listen.
+9proxy api -c >/dev/null 2>&1 || true
 9proxy api -s -p 10110 >/dev/null 2>&1 || log "the local API did not start; today's list is not available"
 
 log "ready ($state)"

@@ -6,6 +6,20 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-14
+
+### Fixed
+- **Today's list came back empty** although an IP was in use: after the daemon
+  starts again, its local API says "running" and does not listen. It is stopped
+  and started at each start, and once more when it does not answer.
+- An exit whose filters fit no IP says which filters it has and to remove one,
+  instead of only "no IP".
+
+### Added
+- **Back to an IP from today's list** on a running exit: the exit's details
+  have "An IP from today's list → Choose…" (kiwi-proxy 0.25), which puts that IP
+  on the exit's port at no cost. New IP takes a new one again.
+
 ## [0.6.0] - 2026-11-14
 
 ### Changed

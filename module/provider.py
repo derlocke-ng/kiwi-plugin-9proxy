@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.6.0",
+    version="0.6.1",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -155,6 +155,9 @@ def where(country: str | None, options: dict | None) -> str:
 class NineProxyProvider(ContainerProvider):
     manifest = MANIFEST
     lease_noun = "port"
+    # Options kiwi-proxy may change on a running exit (its details): renew()
+    # then binds that IP from today's list instead of a new one.
+    live_options = ("today",)
     ready_timeout = 90.0
     log_marker = "kf-9proxy:"
 
@@ -233,8 +236,18 @@ class NineProxyProvider(ContainerProvider):
         proc = podman.exec_(ctx.container_name(), ["curl", "-s", "-m", "30", url], timeout=45)
         try:
             answer = json.loads(proc.stdout or "")
-        except ValueError as exc:
-            raise ProviderError(f"9proxy: its API did not answer ({path.split('?')[0]})") from exc
+        except ValueError:
+            # After the daemon starts again its API says "running" and does not
+            # listen (seen 2026-11-14): stop it, start it, ask once more.
+            self._cli(ctx, "api", "-c")
+            self._cli(ctx, "api", "-s", "-p", str(API_PORT))
+            proc = podman.exec_(ctx.container_name(), ["curl", "-s", "-m", "30", url], timeout=45)
+            try:
+                answer = json.loads(proc.stdout or "")
+            except ValueError as exc:
+                raise ProviderError(
+                    f"9proxy: its API did not answer ({path.split('?')[0]})"
+                ) from exc
         if answer.get("error"):
             raise ProviderError(f"9proxy: {answer.get('message') or 'its API refused'}")
         return answer.get("data")
@@ -286,7 +299,6 @@ class NineProxyProvider(ContainerProvider):
             return []
         if not podman.is_running(ctx.container_name()):
             super().up(ctx, lease=None)
-        self._cli(ctx, "api", "-s", "-p", str(API_PORT))  # a daemon from before 0.5 has it off
         query = "today_list?t=2" + (f"&country={country.upper()}" if country else "")
         return today_leases(self._api(ctx, query))
 
@@ -326,8 +338,15 @@ class NineProxyProvider(ContainerProvider):
                 if not bound(self._status(ctx), port):
                     out = self._bind(ctx, port, country, options, today=False)
             if not bound(self._status(ctx), port):
+                narrow = [k for k in ("state", "city", "isp", "zip") if (options or {}).get(k)]
+                hint = (
+                    f" 9proxy has none that fits all of {', '.join(narrow)} at once: "
+                    "remove one of them (in the exit's Edit dialog)."
+                    if narrow
+                    else ""
+                )
                 raise ProviderError(
-                    f"9proxy: no IP{where(country, options)} for port {port}." + _tail(out)
+                    f"9proxy: no IP{where(country, options)} for port {port}." + hint + _tail(out)
                 )
         return daemon.model_copy(update={"port": int(port), "lease": port, "country": country})
 
@@ -365,6 +384,17 @@ class NineProxyProvider(ContainerProvider):
         if not podman.is_running(ctx.container_name()):
             super().up(ctx, lease=None)
         self._cli(ctx, "port", "-k", port)
+        if picked := str((options or {}).get("today", "")).strip():
+            # Back to an IP from today's list: no cost.
+            self._api(ctx, f"forward?id={picked}&port={port}&t=2")
+            if not bound(self._status(ctx), port):
+                raise ProviderError(
+                    f"9proxy: that IP from today's list did not bind on port {port}."
+                )
+            return [
+                f"the chosen IP from today's list on port {port}",
+                "no IP used from the balance",
+            ]
         out = self._bind(ctx, port, country, options, today=False)
         if not bound(self._status(ctx), port):
             raise ProviderError(
