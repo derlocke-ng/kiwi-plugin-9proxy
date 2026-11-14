@@ -145,3 +145,12 @@ def test_the_daemon_stays_while_another_exit_uses_it(provider, ctx, monkeypatch)
     monkeypatch.setattr(podman, "ps", lambda all_=True, labels=None: [])
     provider.down(ctx, lease="60000")
     assert removed == [ctx.container_name()]
+
+
+def test_an_exit_is_chosen_by_the_clis_own_filters(module, provider, ctx):
+    assert [o.key for o in provider.exit_options(ctx)] == ["state", "city", "zip", "plan"]
+    assert module.filters("us", {"city": "Los Angeles", "state": "California", "zip": ""}) == [
+        "-c", "US", "-s", "California", "-t", "Los Angeles",
+    ]  # fmt: skip
+    assert module.filters(None, None) == []
+    assert module.where("us", {"city": "Los Angeles"}) == " in Los Angeles, US"

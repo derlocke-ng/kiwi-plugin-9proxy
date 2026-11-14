@@ -6,6 +6,15 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-14
+
+### Added
+- **Choose an exit by state, city, zip code and plan**, besides its country:
+  the filters of 9proxy's own command (`9proxy proxy -s -t -z -a`). They are
+  rows in the exit dialog and `--opt state=…` on the command line (kiwi-proxy
+  0.23), kept per exit and used for the first IP and for New IP. 9proxy's
+  command has no list of single addresses to pick from.
+
 ## [0.3.1] - 2026-11-14
 
 ### Fixed

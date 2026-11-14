@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.3.1",
+    version="0.4.0",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -79,6 +79,36 @@ def bound(status: str, port: str) -> bool:
     if re.search(r"(?i)\b(dead|offline|error|fail\w*|expired|unavailable|none)\b", rest):
         return False
     return bool(_IP.search(rest))
+
+
+# What an exit can be chosen by besides its country: the filters of
+# `9proxy proxy` (its --help, v158-era CLI; there is no list of single IPs).
+EXIT_OPTIONS = [
+    Setting(
+        "state", "State or region", help="As 9proxy names it, e.g. California.", required=False
+    ),
+    Setting("city", "City", help="As 9proxy names it, e.g. Los Angeles.", required=False),
+    Setting("zip", "Zip code", required=False),
+    Setting(
+        "plan", "Plan", help="One of your 9proxy plans, when you have several.", required=False
+    ),
+]
+_FLAGS = {"state": "-s", "city": "-t", "zip": "-z", "plan": "-a"}
+
+
+def filters(country: str | None, options: dict | None) -> list[str]:
+    """The `9proxy proxy` flags for an exit's country and options."""
+    args = ["-c", country.upper()] if country else []
+    for key, flag in _FLAGS.items():
+        if value := str((options or {}).get(key, "")).strip():
+            args += [flag, value]
+    return args
+
+
+def where(country: str | None, options: dict | None) -> str:
+    bits = [str((options or {}).get(k, "")).strip() for k in ("city", "state", "zip")]
+    bits = [b for b in bits if b] + ([country.upper()] if country else [])
+    return f" in {', '.join(bits)}" if bits else ""
 
 
 class NineProxyProvider(ContainerProvider):
@@ -176,31 +206,37 @@ class NineProxyProvider(ContainerProvider):
             )
         return lease
 
-    def up(self, ctx, *, lease=None, country=None, selection=None):  # noqa: ARG002
+    def up(self, ctx, *, lease=None, country=None, selection=None, options=None):  # noqa: ARG002
         port = self._port(lease)
         daemon = super().up(ctx, lease=None)  # the one container, every port
         if not bound(self._status(ctx), port):
-            args = ["proxy", "-n", "-p", port] + (["-c", country.upper()] if country else [])
+            args = ["proxy", "-n", "-p", port, *filters(country, options)]
             _code, out = self._cli(ctx, *args)
             if not bound(self._status(ctx), port):
-                where = f" in {country.upper()}" if country else ""
                 raise ProviderError(
-                    f"9proxy: no IP{where} on today's list for port {port}. A new one uses "
+                    f"9proxy: no IP{where(country, options)} on today's list for port {port}. A new one uses "
                     "one IP from your balance: New IP in Kiwi Proxy, or `kiwi-proxy renew EXIT`."
                     + _tail(out)
                 )
         return daemon.model_copy(update={"port": int(port), "lease": port, "country": country})
 
-    def renew(self, ctx, *, lease=None, country=None):
+    def exit_options(self, ctx):  # noqa: ARG002
+        """What 9proxy's own CLI filters by besides the country
+        (`9proxy proxy -s STATE -t CITY -z ZIP -a PLAN`)."""
+        return list(EXIT_OPTIONS)
+
+    def renew(self, ctx, *, lease=None, country=None, options=None):
         """A new IP on this exit's port. Uses one IP from the balance."""
         port = self._port(lease)
         if not podman.is_running(ctx.container_name()):
             super().up(ctx, lease=None)
         self._cli(ctx, "port", "-k", port)
-        args = ["proxy", "-p", port] + (["-c", country.upper()] if country else [])
+        args = ["proxy", "-p", port, *filters(country, options)]
         _code, out = self._cli(ctx, *args)
         if not bound(self._status(ctx), port):
-            raise ProviderError(f"9proxy: no new IP on port {port}." + _tail(out))
+            raise ProviderError(
+                f"9proxy: no new IP{where(country, options)} on port {port}." + _tail(out)
+            )
         balance = self._cli(ctx, "proxy", "-b")[1].strip().splitlines()
         return [f"a new IP on port {port}", *balance[-3:]]
 
