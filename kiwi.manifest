@@ -1,7 +1,7 @@
 # kiwi.manifest — app metadata for kiwi-updater
 NAME=kiwi-plugin-9proxy
 DESCRIPTION=exit through 9proxy residential IPs with your account, up to 10 exits at a time — a kiwi-proxy provider module
-VERSION=0.5.0
+VERSION=0.6.0
 AUTHOR=derlocke-ng
 HOMEPAGE=https://github.com/derlocke-ng/kiwi-plugin-9proxy
 LICENSE=GPL-3.0-or-later

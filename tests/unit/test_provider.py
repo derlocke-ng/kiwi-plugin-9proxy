@@ -3,6 +3,7 @@ balance spent only on request (today's list at start, New IP when asked)."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 
@@ -105,7 +106,7 @@ def daemon(provider, monkeypatch):
     return make
 
 
-def test_an_exit_starts_on_todays_list_and_never_spends(provider, ctx, daemon):
+def test_an_exit_starts_on_todays_list_when_one_fits(provider, ctx, daemon):
     d = daemon(today=True)
     ep = provider.up(ctx, lease="60004", country="us")
     assert (ep.host, ep.port, ep.lease) == ("10.89.231.40", 60004, "60004")
@@ -113,11 +114,17 @@ def test_an_exit_starts_on_todays_list_and_never_spends(provider, ctx, daemon):
     assert binds == [["proxy", "-n", "-p", "60004", "-c", "US"]]
 
 
-def test_with_nothing_on_todays_list_it_does_not_start(provider, ctx, daemon):
+def test_with_nothing_on_todays_list_it_takes_a_new_ip(provider, ctx, daemon):
+    # The user, with a real account whose list for today was empty: "still
+    # doesn't connect since it tries to use already booked IPs".
     d = daemon(today=False)
-    with pytest.raises(ProviderError, match="no IP in US on today's list.*New IP"):
+    with contextlib.suppress(ProviderError):  # the fake binds nothing; the calls count
         provider.up(ctx, lease="60004", country="us")
-    assert all("-n" in c for c in d.calls if c[0] == "proxy")  # no balance spent
+    binds = [c for c in d.calls if c[0] == "proxy"]
+    assert binds == [
+        ["proxy", "-n", "-p", "60004", "-c", "US"],  # today's list first: no cost
+        ["proxy", "-p", "60004", "-c", "US"],  # then one from the balance
+    ]
 
 
 def test_a_new_ip_only_on_request(provider, ctx, daemon):
@@ -148,7 +155,9 @@ def test_the_daemon_stays_while_another_exit_uses_it(provider, ctx, monkeypatch)
 
 
 def test_an_exit_is_chosen_by_the_clis_own_filters(module, provider, ctx):
-    assert [o.key for o in provider.exit_options(ctx)] == ["state", "city", "zip", "plan", "today"]
+    assert [o.key for o in provider.exit_options(ctx)] == [
+        "state", "city", "isp", "zip", "plan", "today",
+    ]  # fmt: skip
     assert module.filters("us", {"city": "Los Angeles", "state": "California", "zip": ""}) == [
         "-c", "US", "-s", "California", "-t", "Los Angeles",
     ]  # fmt: skip
@@ -186,3 +195,20 @@ def test_todays_list_becomes_rows_to_pick_from(module):
         ("def", "203.0.113.9", "Paris", "FR", "offline, on 10.89.231.23:60001"),
     ]
     assert module.today_leases(None) == []
+
+
+def test_what_there_is_to_pick_comes_from_9proxys_own_lists(provider, ctx, monkeypatch):
+    asked = []
+
+    def lists(self, c, path):
+        asked.append(path)
+        if path == "listCountry":
+            return [{"countryCode": "DE", "countryName": "Germany", "flag": "x"}, {"bad": 1}]
+        return ["Bayern", "Berlin", "Berlin", ""]
+
+    monkeypatch.setattr(type(provider), "_list", lists)
+    assert [(c.code, c.name) for c in provider.countries(ctx)] == [("de", "Germany")]
+    assert [x.id for x in provider.option_choices(ctx, "state", "de")] == ["Bayern", "Berlin"]
+    assert asked[-1] == "listState?countryCode=DE"
+    with pytest.raises(ProviderError, match="country first"):
+        provider.option_choices(ctx, "city", None)

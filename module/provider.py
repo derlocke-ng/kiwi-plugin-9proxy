@@ -23,7 +23,7 @@ import re
 
 from kiwi_proxy import podman
 from kiwi_proxy.models import ContainerSpec, Lease, ProviderManifest
-from kiwi_proxy.providers.base import ContainerProvider, ProviderError, Setting
+from kiwi_proxy.providers.base import ContainerProvider, Country, ProviderError, Setting
 
 FIRST_PORT = 60000
 PORTS = 10
@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.5.0",
+    version="0.6.0",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -113,11 +113,10 @@ def today_leases(data: object) -> list[Lease]:
 # What an exit can be chosen by besides its country: the filters of
 # `9proxy proxy` (its --help, v158-era CLI; there is no list of single IPs).
 EXIT_OPTIONS = [
-    Setting(
-        "state", "State or region", help="As 9proxy names it, e.g. California.", required=False
-    ),
-    Setting("city", "City", help="As 9proxy names it, e.g. Los Angeles.", required=False),
-    Setting("zip", "Zip code", required=False),
+    Setting("state", "State or region", kind="choice", required=False),
+    Setting("city", "City", kind="choice", required=False),
+    Setting("isp", "Internet provider", kind="choice", required=False),
+    Setting("zip", "Zip code", kind="choice", required=False),
     Setting(
         "plan", "Plan", help="One of your 9proxy plans, when you have several.", required=False
     ),
@@ -130,6 +129,11 @@ EXIT_OPTIONS = [
         required=False,
     ),
 ]
+# Where 9proxy's own app gets what it offers: the lists its interactive picker
+# shows. Not in its documentation; read out of the program (v1.0.12) and tried
+# on 2026-11-14: they answer without a login, filtered by countryCode.
+LISTS_URL = "https://g-api-t.nineproxy.biz/app/module_px/v1"
+LISTS = {"state": "listState", "city": "listCity", "isp": "listIsp", "zip": "listZipcode"}
 _FLAGS = {"state": "-s", "city": "-t", "zip": "-z", "plan": "-a"}
 
 
@@ -235,8 +239,49 @@ class NineProxyProvider(ContainerProvider):
             raise ProviderError(f"9proxy: {answer.get('message') or 'its API refused'}")
         return answer.get("data")
 
+    def _list(self, ctx, path: str) -> list:
+        """One of 9proxy's own lists (LISTS_URL): asked from the daemon's container
+        when it runs, else from here."""
+        url = f"{LISTS_URL}/{path}"
+        try:
+            if podman.is_running(ctx.container_name()):
+                proc = podman.exec_(
+                    ctx.container_name(), ["curl", "-s", "-m", "20", url], timeout=30
+                )
+                raw = proc.stdout or ""
+            else:
+                import urllib.request
+
+                with urllib.request.urlopen(url, timeout=20) as resp:  # noqa: S310
+                    raw = resp.read().decode()
+            found = json.loads(raw).get("result")
+        except (OSError, ValueError, AttributeError) as exc:
+            raise ProviderError(
+                f"9proxy: its list of what it offers did not answer ({exc})"
+            ) from exc
+        return found if isinstance(found, list) else []
+
+    def countries(self, ctx):
+        """The countries 9proxy has IPs in, as its own app lists them."""
+        try:
+            found = self._list(ctx, "listCountry")
+        except ProviderError:
+            return []  # kiwi-proxy then offers every country there is
+        return [
+            Country(str(c["countryCode"]).lower(), str(c.get("countryName") or c["countryCode"]))
+            for c in found
+            if isinstance(c, dict) and c.get("countryCode")
+        ]
+
     def option_choices(self, ctx, key, country=None):
-        """Today's list, for the "today" option: the IPs this account already has."""
+        """What there is to pick for an option: 9proxy's states, cities, internet
+        providers and zip codes in the exit's country, or today's list (the IPs
+        this account already has)."""
+        if key in LISTS:
+            if not country:
+                raise ProviderError("9proxy: choose the country first")
+            names = self._list(ctx, f"{LISTS[key]}?countryCode={country.upper()}")
+            return [Lease(id=str(n), label=str(n)) for n in sorted({str(n) for n in names if n})]
         if key != "today":
             return []
         if not podman.is_running(ctx.container_name()):
@@ -275,15 +320,39 @@ class NineProxyProvider(ContainerProvider):
                 # The one IP chosen from today's list, on this exit's port.
                 self._api(ctx, f"forward?id={picked}&port={port}&t=2")
             else:
-                args = ["proxy", "-n", "-p", port, *filters(country, options)]
-                _code, out = self._cli(ctx, *args)
+                # One from today's list that fits (already paid for), else a new
+                # one from the balance: an exit that is brought up connects.
+                out = self._bind(ctx, port, country, options, today=True)
+                if not bound(self._status(ctx), port):
+                    out = self._bind(ctx, port, country, options, today=False)
             if not bound(self._status(ctx), port):
                 raise ProviderError(
-                    f"9proxy: no IP{where(country, options)} on today's list for port {port}. A new one uses "
-                    "one IP from your balance: New IP in Kiwi Proxy, or `kiwi-proxy renew EXIT`."
-                    + _tail(out)
+                    f"9proxy: no IP{where(country, options)} for port {port}." + _tail(out)
                 )
         return daemon.model_copy(update={"port": int(port), "lease": port, "country": country})
+
+    def _bind(self, ctx, port, country, options, *, today: bool) -> str:
+        """Put an IP that fits on the port: from today's list (no cost) or a new
+        one (one from the balance). 9proxy's command filters by country, state,
+        city, zip and plan; by internet provider only its local API does."""
+        opts = options or {}
+        if str(opts.get("isp", "")).strip():
+            from urllib.parse import urlencode
+
+            query = {"port": port, "num": "1", "t": "2"}
+            if country:
+                query["country"] = country.upper()
+            for key in ("state", "city", "zip", "isp", "plan"):
+                if value := str(opts.get(key, "")).strip():
+                    query[key] = value
+            if today:
+                query["today"] = "true"
+            try:
+                return str(self._api(ctx, "proxy?" + urlencode(query)) or "")
+            except ProviderError as exc:
+                return str(exc)
+        args = ["proxy", *(["-n"] if today else []), "-p", port, *filters(country, options)]
+        return self._cli(ctx, *args)[1]
 
     def exit_options(self, ctx):  # noqa: ARG002
         """What 9proxy's own CLI filters by besides the country
@@ -296,8 +365,7 @@ class NineProxyProvider(ContainerProvider):
         if not podman.is_running(ctx.container_name()):
             super().up(ctx, lease=None)
         self._cli(ctx, "port", "-k", port)
-        args = ["proxy", "-p", port, *filters(country, options)]
-        _code, out = self._cli(ctx, *args)
+        out = self._bind(ctx, port, country, options, today=False)
         if not bound(self._status(ctx), port):
             raise ProviderError(
                 f"9proxy: no new IP{where(country, options)} on port {port}." + _tail(out)

@@ -6,6 +6,23 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-14
+
+### Changed
+- **An exit that is brought up connects.** It takes an IP from today's list
+  that fits; when there is none (a new account, a country not used today) it
+  now takes a new one from the balance instead of failing. Before, only New IP
+  spent one, and a first exit could not come up at all.
+
+### Added
+- **Lists to choose from**: the countries 9proxy has, and per country its
+  states, cities, internet providers and zip codes, each behind Choose… in the
+  exit dialog. They are the lists 9proxy's own program shows (read out of the
+  program, not documented by 9proxy; they answer without a login).
+- **Internet provider** as a filter. 9proxy's command has no flag for it, so
+  such an exit is bound through the daemon's local API (`/api/proxy`); this
+  path has not been run with a real account yet.
+
 ## [0.5.0] - 2026-11-14
 
 ### Fixed
