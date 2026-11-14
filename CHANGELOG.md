@@ -6,6 +6,16 @@ latest tag matching `^v?[0-9]+(\.[0-9]+){0,3}$`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-14
+
+### Fixed
+- **The daemon did not start once an account was set**: "provider container
+  exited during start". Its start script writes the container's address into
+  `/etc/9proxy-config.json`, and the container ran as your user id, which may not
+  write there (`sed: couldn't open temporary file … Permission denied`). It now
+  runs as the container's own root, still with every capability dropped.
+  Reproduced and checked on the dev VM without logging in.
+
 ## [0.3.0] - 2026-11-11
 
 ### Changed

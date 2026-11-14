@@ -36,7 +36,7 @@ MANIFEST = ProviderManifest(
     name="9proxy",
     title="9proxy",
     description="exit through 9proxy residential IPs",
-    version="0.3.0",
+    version="0.3.1",
     socks_port=FIRST_PORT,
     auth="none",
     needs_account=True,
@@ -140,6 +140,10 @@ class NineProxyProvider(ContainerProvider):
             secrets=[ctx.secret_mount(PASSWORD_SECRET, PASSWORD_TARGET)],
             cap_drop=["all"],
             security_opt=["no-new-privileges"],
+            # Container-root (this user outside): the entrypoint writes the
+            # container's address into /etc/9proxy-config.json, which only root
+            # may. As this user's id it failed ("sed: … Permission denied").
+            userns=None,
             tmpfs=["/tmp"],
             labels={"kiwi-proxy.module": self.name, "kiwi-proxy.role": "provider"},
         )

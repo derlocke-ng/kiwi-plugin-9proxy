@@ -56,6 +56,8 @@ def test_the_account_is_kept_once(provider, ctx, monkeypatch):
         "username": "me@example.org"
     }
     spec = provider.container_spec(ctx, lease="60003")
+    # container root, to write its address into /etc/9proxy-config.json
+    assert spec.userns is None and spec.cap_drop == ["all"]
     assert spec.name == ctx.container_name()  # every port in the one container
     assert spec.env == {"KF_9PROXY_USER": "me@example.org", "KF_9PROXY_IP": ctx.static_ip()}
     assert spec.restart == "no"  # a failed login is not retried in a loop
